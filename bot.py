@@ -6,8 +6,7 @@ import sys
 import aiohttp
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, Router
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, \
-    BotCommandScopeDefault, BotCommandScopeChat
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -32,8 +31,8 @@ logger = logging.getLogger(__name__)
 # Токен бота
 BOT_TOKEN = "7997267152:AAFkALXJFIVl-MKBCt8sDwu4-Ci6LrNIOD8"
 
-# ID админа
-ADMIN_ID = [7438900969, 5241019139]
+# Список ID админов
+ADMIN_IDS = [7438900969, 5241019139]
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
@@ -49,7 +48,6 @@ subscribed_users = {}  # {user_id: {"username": username, "expires": datetime or
 support_questions = []
 keys = {}  # {key: {"days": int, "used": bool, "user_id": int or None, "expires": datetime or None}}
 
-
 # Генерация 500 случайных email
 def generate_random_emails():
     emails = {}
@@ -63,11 +61,8 @@ def generate_random_emails():
         emails[email] = "dummy_password"
     return emails
 
-
 senders = generate_random_emails()
-receivers = ['sms@telegram.org', 'dmca@telegram.org', 'abuse@telegram.org', 'sticker@telegram.org',
-             'support@telegram.org']
-
+receivers = ['sms@telegram.org', 'dmca@telegram.org', 'abuse@telegram.org', 'sticker@telegram.org', 'support@telegram.org']
 
 # Функция имитации отправки email
 async def send_email(receiver, sender_email, sender_password, subject, body):
@@ -79,7 +74,6 @@ async def send_email(receiver, sender_email, sender_password, subject, body):
     except Exception as e:
         logger.error(f"Simulated error sending email to {receiver} from {sender_email}: {e}")
         return False
-
 
 # Функция для сброса обновлений
 async def reset_updates():
@@ -93,7 +87,6 @@ async def reset_updates():
                     logger.error(f"Failed to clear updates: {await response.text()}")
     except Exception as e:
         logger.error(f"Error clearing updates: {e}")
-
 
 # Фоновая задача для проверки истёкших подписок
 async def check_subscriptions():
@@ -113,18 +106,15 @@ async def check_subscriptions():
                 logger.error(f"Error notifying user {user_id} about subscription expiration: {e}")
         await asyncio.sleep(60)
 
-
 # Фоновая задача для очистки истёкших ключей
 async def clean_expired_keys():
     while True:
         current_time = datetime.now()
-        expired_keys = [key for key, data in keys.items() if
-                        data["used"] and data["expires"] and data["expires"] < current_time]
+        expired_keys = [key for key, data in keys.items() if data["used"] and data["expires"] and data["expires"] < current_time]
         for key in expired_keys:
             del keys[key]
             logger.info(f"Key {key} removed due to expiration")
         await asyncio.sleep(3600)  # Проверка каждый час
-
 
 # Настройка меню команд
 async def set_bot_commands():
@@ -146,9 +136,9 @@ async def set_bot_commands():
         BotCommand(command="/generatekey", description="🔑 Сгенерировать ключ"),
         BotCommand(command="/listkeys", description="📜 Список ключей")
     ]
-    await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
+    for admin_id in ADMIN_IDS:
+        await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
     logger.info("Bot commands menu set successfully")
-
 
 # Определение состояний
 class ComplaintStates(StatesGroup):
@@ -164,26 +154,22 @@ class ComplaintStates(StatesGroup):
     group_id = State()
     group_violation = State()
 
-
 class SupportStates(StatesGroup):
     waiting_for_question = State()
 
-
 class AdminStates(StatesGroup):
     waiting_for_subscription_id = State()
-
 
 # Функция генерации ключа
 def generate_key(length=16):
     characters = string.ascii_letters + string.digits
     return ''.join(random.choices(characters, k=length))
 
-
 # Команда /generatekey
 @router.message(Command("generatekey"))
 async def generate_key_command(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     try:
         days = int(message.text.split()[1])
@@ -201,17 +187,16 @@ async def generate_key_command(message: Message):
     except (IndexError, ValueError):
         await message.answer("❌ Формат: /generatekey <days>")
 
-
 # Команда /activate
 @router.message(Command("activate"))
 async def activate_key_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or "Аноним"
-
+    
     if user_id in banned_users:
         await message.answer("❌ Вы забанены.")
         return
-
+    
     try:
         key = message.text.split()[1]
         if key not in keys:
@@ -220,39 +205,38 @@ async def activate_key_command(message: Message, state: FSMContext):
         if keys[key]["used"]:
             await message.answer("❌ Этот ключ уже использован.")
             return
-
+        
         # Активация ключа
         days = keys[key]["days"]
         expires = datetime.now() + timedelta(days=days)
         keys[key]["used"] = True
         keys[key]["user_id"] = user_id
         keys[key]["expires"] = expires
-
+        
         # Обновление подписки пользователя
         subscribed_users[user_id] = {
             "username": username,
             "expires": expires
         }
-
+        
         await message.answer(f"✅ Ключ активирован! Подписка выдана до {expires.strftime('%Y-%m-%d %H:%M')}.")
         logger.info(f"User {user_id} (@{username}) activated key {key} for {days} days")
-
-        # Уведомление админа
-        try:
-            await bot.send_message(ADMIN_ID,
-                                   f"🔔 Пользователь @{username} (ID: {user_id}) активировал ключ `{key}` на {days} дней.")
-        except Exception as e:
-            logger.error(f"Error notifying admin about key activation: {e}")
-
+        
+        # Уведомление админов
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, f"🔔 Пользователь @{username} (ID: {user_id}) активировал ключ `{key}` на {days} дней.")
+            except Exception as e:
+                logger.error(f"Error notifying admin {admin_id} about key activation: {e}")
+            
     except IndexError:
         await message.answer("❌ Укажите ключ: /activate <key>")
-
 
 # Команда /listkeys
 @router.message(Command("listkeys"))
 async def list_keys_command(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     if not keys:
         await message.answer("📭 Ключи отсутствуют.")
@@ -265,7 +249,6 @@ async def list_keys_command(message: Message):
         for key, data in keys.items()
     )
     await message.answer(f"📋 Список ключей:\n{key_list}")
-
 
 # Команда /start
 @router.message(Command("start"))
@@ -290,13 +273,12 @@ async def start_command(message: Message):
         logger.error(f"Error in /start for user {user_id}: {e}")
         await message.answer("❌ Ошибка при обработке команды. Попробуйте позже.")
 
-
 # Команда /getid
 @router.message(Command("getid"))
 async def get_id_command(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Аноним"
-    if message.from_user.id == ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         try:
             target_username = message.text.split()[1].lstrip("@")
             for uid, uname in all_users.items():
@@ -309,12 +291,11 @@ async def get_id_command(message: Message):
     else:
         await message.answer(f"🆔 Ваш ID: {user_id}")
 
-
 # Команда /ban
 @router.message(Command("ban"))
 async def ban_user(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -331,12 +312,11 @@ async def ban_user(message: Message):
     except IndexError:
         await message.answer("❌ Укажите username: /ban @username")
 
-
 # Команда /unban
 @router.message(Command("unban"))
 async def unban_user(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -353,21 +333,18 @@ async def unban_user(message: Message):
     except IndexError:
         await message.answer("❌ Укажите username: /unban @username")
 
-
 # Команда /users
 @router.message(Command("users"))
 async def list_users(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     if not all_users:
         await message.answer("📭 Пользователей пока нет.")
         return
     user_list = "\n".join(
-        f"ID: {user_id}, @{username}" +
-        (f" ✅ (до {subscribed_users[user_id]['expires'].strftime('%Y-%m-%d %H:%M')})" if user_id in subscribed_users and
-                                                                                         subscribed_users[user_id][
-                                                                                             "expires"] else " ✅" if user_id in subscribed_users else "") +
+        f"ID: {user_id}, @{username}" + 
+        (f" ✅ (до {subscribed_users[user_id]['expires'].strftime('%Y-%m-%d %H:%M')})" if user_id in subscribed_users and subscribed_users[user_id]["expires"] else " ✅" if user_id in subscribed_users else "") +
         (" 🚫" if user_id in banned_users else "")
         for user_id, username in sorted(all_users.items(), key=lambda x: x[0])
     )
@@ -376,12 +353,11 @@ async def list_users(message: Message):
     ])
     await message.answer(f"📋 Список пользователей:\n{user_list}", reply_markup=keyboard)
 
-
 # Команда /subscribe
 @router.message(Command("subscribe"))
 async def subscribe_user(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     try:
         parts = message.text.split()
@@ -406,8 +382,7 @@ async def subscribe_user(message: Message):
             "username": all_users[user_id],
             "expires": expires
         }
-        await message.answer(
-            f"✅ Пользователю @{username} (ID: {user_id}) выдана подписка до {expires.strftime('%Y-%m-%d %H:%M')}.")
+        await message.answer(f"✅ Пользователю @{username} (ID: {user_id}) выдана подписка до {expires.strftime('%Y-%m-%d %H:%M')}.")
         try:
             await bot.send_message(user_id, f"🎉 Вы получили подписку до {expires.strftime('%Y-%m-%d %H:%M')}!")
         except Exception as e:
@@ -416,12 +391,11 @@ async def subscribe_user(message: Message):
     except (IndexError, ValueError):
         await message.answer("❌ Формат: /subscribe @username <days>")
 
-
 # Команда /unsubscribe
 @router.message(Command("unsubscribe"))
 async def unsubscribe_user(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -446,12 +420,11 @@ async def unsubscribe_user(message: Message):
     except IndexError:
         await message.answer("❌ Укажите username: /unsubscribe @username")
 
-
 # Команда /answer
 @router.message(Command("answer"))
 async def answer_command(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
         return
     if not support_questions:
         await message.answer("📭 Вопросов пока нет.")
@@ -462,22 +435,20 @@ async def answer_command(message: Message):
         )
     await message.answer("📬 Ответьте, цитируя вопрос (свайп), чтобы отправить ответ пользователю.")
 
-
 # Обработчик выдачи подписки (без времени)
 @router.callback_query(lambda c: c.data == "issue_subscription")
 async def process_issue_subscription(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id not in ADMIN_IDS:
         await callback.message.answer("❌ Доступ запрещён.")
         return
     await state.set_state(AdminStates.waiting_for_subscription_id)
     await callback.message.answer("👤 Введите @username пользователя для выдачи подписки:")
     await callback.message.delete()
 
-
 # Ввод username для подписки (без времени)
 @router.message(AdminStates.waiting_for_subscription_id)
 async def process_subscription_id(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ Доступ запрещён.")
         return
     try:
@@ -504,12 +475,11 @@ async def process_subscription_id(message: Message, state: FSMContext):
         await message.answer("❌ Введите корректный @username.")
     await state.clear()
 
-
 # Обработчик выбора действия
 @router.callback_query(lambda c: c.data.startswith("choice_"))
 async def process_choice(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
+       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     choice = callback.data
@@ -539,7 +509,6 @@ async def process_choice(callback: CallbackQuery, state: FSMContext):
             reply_markup=main_keyboard
         )
 
-
 # Обработчик вопроса техподдержки
 @router.message(SupportStates.waiting_for_question)
 async def process_support_question(message: Message, state: FSMContext):
@@ -552,25 +521,25 @@ async def process_support_question(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
     ])
     try:
-        await bot.send_message(
-            ADMIN_ID,
-            f"❓ Новый вопрос от @{username} (ID: {user_id}):\n{question}"
-        )
+        for admin_id in ADMIN_IDS:
+            await bot.send_message(
+                admin_id,
+                f"❓ Новый вопрос от @{username} (ID: {user_id}):\n{question}"
+            )
         await message.answer(
             "✅ Ваш вопрос отправлен! Ожидайте ответа. 😊",
             reply_markup=main_keyboard
         )
     except Exception as e:
-        logger.error(f"Ошибка отправки вопроса админу: {e}")
+        logger.error(f"Ошибка отправки вопроса админам: {e}")
         await message.answer(
             "❌ Ошибка при отправке вопроса. Попробуйте позже. 😔",
             reply_markup=main_keyboard
         )
     await state.clear()
 
-
 # Обработчик ответа админа
-@router.message(lambda message: message.from_user.id == ADMIN_ID and message.reply_to_message)
+@router.message(lambda message: message.from_user.id in ADMIN_IDS and message.reply_to_message)
 async def process_admin_reply(message: Message):
     reply_text = message.text
     replied_message = message.reply_to_message.text
@@ -591,12 +560,11 @@ async def process_admin_reply(message: Message):
             return
     await message.answer("❌ Не удалось найти вопрос. Убедитесь, что вы цитируете правильное сообщение.")
 
-
 # Обработчик выбора типа сноса
 @router.callback_query(lambda c: c.data.startswith("snos_"))
 async def process_snos_choice(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
+       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     choice = callback.data.split("_")[1]
@@ -646,12 +614,11 @@ async def process_snos_choice(callback: CallbackQuery, state: FSMContext):
         ])
         await callback.message.edit_text("🎯 Выбери причину жалобы на группу:", reply_markup=keyboard)
 
-
 # Обработчик выбора типа жалобы
 @router.callback_query(lambda c: c.data.startswith(("comp_", "ch_", "bot_", "group_")))
 async def process_complaint_type(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
+       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     complaint_type = callback.data.split("_")[0]
@@ -676,7 +643,6 @@ async def process_complaint_type(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ComplaintStates.group_link)
         await callback.message.edit_text("💬 Введи ссылку на чат:", reply_markup=main_keyboard)
 
-
 # Обработчик USERNAME для аккаунта
 @router.message(ComplaintStates.username)
 async def process_username(message: Message, state: FSMContext):
@@ -689,7 +655,6 @@ async def process_username(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
     ])
     await message.answer("🆔 Введи TG ID аккаунта:", reply_markup=main_keyboard)
-
 
 # Обработчик TG ID для аккаунта
 @router.message(ComplaintStates.tg_id)
@@ -704,7 +669,6 @@ async def process_id(message: Message, state: FSMContext):
     ])
     await message.answer("💬 Введи ссылку на чат:", reply_markup=main_keyboard)
 
-
 # Обработчик ссылки на чат для аккаунта
 @router.message(ComplaintStates.chat_link)
 async def process_chat_link(message: Message, state: FSMContext):
@@ -717,7 +681,6 @@ async def process_chat_link(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
     ])
     await message.answer("⚠ Введи ссылку на нарушение в чате:", reply_markup=main_keyboard)
-
 
 # Обработчик ссылки на нарушение для аккаунта
 @router.message(ComplaintStates.violation_link)
@@ -783,7 +746,6 @@ async def process_violation_link(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-
 # Обработчик ссылки на канал
 @router.message(ComplaintStates.channel_link)
 async def process_channel_link(message: Message, state: FSMContext):
@@ -796,7 +758,6 @@ async def process_channel_link(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
     ])
     await message.answer("⚠ Введи ссылку на нарушение в канале:", reply_markup=main_keyboard)
-
 
 # Обработчик ссылки на нарушение в канале
 @router.message(ComplaintStates.channel_violation)
@@ -854,7 +815,6 @@ async def process_channel_violation(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-
 # Обработчик USERNAME бота
 @router.message(ComplaintStates.bot_username)
 async def process_bot_username(message: Message, state: FSMContext):
@@ -908,7 +868,6 @@ async def process_bot_username(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-
 # Обработчик ссылки на группу
 @router.message(ComplaintStates.group_link)
 async def process_group_link(message: Message, state: FSMContext):
@@ -921,7 +880,6 @@ async def process_group_link(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
     ])
     await message.answer("🆔 Введи TG ID чата:", reply_markup=main_keyboard)
-
 
 # Обработчик TG ID группы
 @router.message(ComplaintStates.group_id)
@@ -942,7 +900,6 @@ async def process_group_id(message: Message, state: FSMContext):
         await send_group_complaint(message, state)
         await state.clear()
 
-
 # Обработчик ссылки на нарушение в группе
 @router.message(ComplaintStates.group_violation)
 async def process_group_violation(message: Message, state: FSMContext):
@@ -951,7 +908,6 @@ async def process_group_violation(message: Message, state: FSMContext):
     await state.update_data(group_violation=message.text)
     await send_group_complaint(message, state)
     await state.clear()
-
 
 # Отправка жалобы на группу
 async def send_group_complaint(message: Message, state: FSMContext):
@@ -977,8 +933,7 @@ async def send_group_complaint(message: Message, state: FSMContext):
     for sender_email, sender_password in senders.items():
         for receiver in receivers:
             comp_text = comp_texts.get(group_choice, comp_texts["1"])
-            comp_body = comp_text.format(user_chat=user_chat.strip(), id_chat=id_chat.strip(),
-                                         ssilka=ssilka.strip() if ssilka else "")
+            comp_body = comp_text.format(user_chat=user_chat.strip(), id_chat=id_chat.strip(), ssilka=ssilka.strip() if ssilka else "")
             success = await send_email(receiver, sender_email, sender_password, '⚠ Жалоба на группу', comp_body)
             if success:
                 sent_emails += 1
@@ -1005,7 +960,6 @@ async def send_group_complaint(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-
 # Проверка бана и подписки
 @router.message()
 async def check_ban_and_subscription(message: Message, state: FSMContext):
@@ -1018,8 +972,8 @@ async def check_ban_and_subscription(message: Message, state: FSMContext):
         await message.answer("❌ Вы забанены.")
         return False
     current_state = await state.get_state()
-    if user_id == ADMIN_ID or current_state == SupportStates.waiting_for_question.state or \
-            (message.text and message.text.lower() in ["/start", "/activate"]):
+    if user_id in ADMIN_IDS or current_state == SupportStates.waiting_for_question.state or \
+       (message.text and message.text.lower() in ["/start", "/activate"]):
         logger.info(f"Allowing user {user_id} (admin, support, /start, or /activate)")
         return True
     if user_id not in subscribed_users:
@@ -1027,7 +981,6 @@ async def check_ban_and_subscription(message: Message, state: FSMContext):
         await message.answer("❌ У вас нет подписки. Используйте /activate <key> или обратитесь в техподдержку.")
         return False
     return True
-
 
 # Запуск бота
 async def main():
@@ -1047,8 +1000,7 @@ async def main():
             break
         except TelegramConflictError as e:
             attempt += 1
-            logger.error(
-                f"Conflict error (attempt {attempt}/{max_retries}): {e}. Retrying in {retry_delay:.2f} seconds...")
+            logger.error(f"Conflict error (attempt {attempt}/{max_retries}): {e}. Retrying in {retry_delay:.2f} seconds...")
             await asyncio.sleep(retry_delay)
             retry_delay *= 1.5
             await reset_updates()
@@ -1056,9 +1008,7 @@ async def main():
             logger.error(f"Unexpected error in polling: {e}")
             break
     else:
-        logger.error(
-            f"Failed to start bot after {max_retries} attempts. Please create a new token or check for other bot instances.")
-
+        logger.error(f"Failed to start bot after {max_retries} attempts. Please create a new token or check for other bot instances.")
 
 if __name__ == "__main__":
     asyncio.run(main())
