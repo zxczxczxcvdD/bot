@@ -1,0 +1,43 @@
+2025-04-20 13:49:33,765 - DEBUG - Using proactor: IocpProactor
+2025-04-20 13:49:33,767 - INFO - Starting bot polling
+2025-04-20 13:49:34,271 - ERROR - Failed to clear updates: {"ok":false,"error_code":409,"description":"Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"}
+2025-04-20 13:49:34,863 - INFO - Bot commands menu set successfully
+2025-04-20 13:49:34,969 - INFO - Webhook cleared, starting polling
+2025-04-20 13:49:34,969 - INFO - Start polling
+2025-04-20 13:49:35,071 - INFO - Run polling for bot @zhalobnuybot id=7997267152 - 'ЖалобныU'
+2025-04-20 13:49:37,695 - DEBUG - Entering start_command for user 7438900969 (@roadtodeathh), command text: '/start'
+2025-04-20 13:49:37,695 - DEBUG - Sending start message with keyboard to user 7438900969
+2025-04-20 13:49:38,122 - INFO - Successfully sent /start response to user 7438900969 (@roadtodeathh)
+2025-04-20 13:49:38,122 - INFO - Update id=473338394 is handled. Duration 421 ms by bot id=7997267152
+2025-04-20 13:49:45,759 - DEBUG - Entering start_command for user 7438900969 (@roadtodeathh), command text: '/start'
+2025-04-20 13:49:45,759 - DEBUG - Sending start message with keyboard to user 7438900969
+2025-04-20 13:49:45,892 - INFO - Successfully sent /start response to user 7438900969 (@roadtodeathh)
+2025-04-20 13:49:45,892 - INFO - Update id=473338395 is handled. Duration 139 ms by bot id=7997267152
+2025-04-20 13:50:05,450 - INFO - Update id=473338396 is handled. Duration 140 ms by bot id=7997267152
+2025-04-20 13:50:12,785 - INFO - Update id=473338397 is handled. Duration 155 ms by bot id=7997267152
+2025-04-20 13:50:22,839 - INFO - Update id=473338398 is handled. Duration 125 ms by bot id=7997267152
+2025-04-20 13:50:28,779 - DEBUG - Entering start_command for user 7438900969 (@roadtodeathh), command text: '/start'
+2025-04-20 13:50:28,780 - DEBUG - Sending start message with keyboard to user 7438900969
+2025-04-20 13:50:28,900 - INFO - Successfully sent /start response to user 7438900969 (@roadtodeathh)
+2025-04-20 13:50:28,900 - INFO - Update id=473338399 is handled. Duration 125 ms by bot id=7997267152
+2025-04-20 13:50:29,806 - INFO - Update id=473338400 is handled. Duration 140 ms by bot id=7997267152
+2025-04-20 13:50:30,691 - INFO - Update id=473338401 is handled. Duration 219 ms by bot id=7997267152
+2025-04-20 13:50:35,336 - INFO - Checking ban/subscription for user 7438900969 (@roadtodeathh), command: /key pvm31WwFCD6DAqus
+2025-04-20 13:50:35,336 - INFO - Allowing user 7438900969 (admin, support, /start, or /activate)
+2025-04-20 13:50:35,336 - INFO - Update id=473338402 is handled. Duration 0 ms by bot id=7997267152
+2025-04-20 13:50:50,998 - INFO - User 7438900969 (@roadtodeathh) activated key pvm31WwFCD6DAqus for 7 days
+2025-04-20 13:50:51,158 - INFO - Update id=473338403 is handled. Duration 328 ms by bot id=7997267152
+2025-04-20 13:51:11,645 - DEBUG - Entering start_command for user 7438900969 (@roadtodeathh), command text: '/start'
+2025-04-20 13:51:11,645 - DEBUG - Sending start message with keyboard to user 7438900969
+2025-04-20 13:51:11,764 - INFO - Successfully sent /start response to user 7438900969 (@roadtodeathh)
+2025-04-20 13:51:11,765 - INFO - Update id=473338404 is handled. Duration 110 ms by bot id=7997267152
+2025-04-20 13:54:29,235 - INFO - Polling stopped
+2025-04-20 13:54:29,489 - INFO - Polling stopped for bot @zhalobnuybot id=7997267152 - 'ЖалобныU'
+2025-04-20 13:54:33,289 - DEBUG - Using proactor: IocpProactor
+2025-04-20 13:54:33,290 - INFO - Starting bot polling
+2025-04-20 13:54:34,025 - INFO - Updates queue cleared
+2025-04-20 13:54:34,797 - INFO - Bot commands menu set successfully
+2025-04-20 13:54:34,888 - INFO - Webhook cleared, starting polling
+2025-04-20 13:54:34,888 - INFO - Start polling
+2025-04-20 13:54:34,980 - INFO - Run polling for bot @zhalobnuybot id=7997267152 - 'ЖалобныU'
+2025-04-20 13:54:50,681 - INFO - Update id=473338405 is handled. Duration 546 ms by bot id=7997267152
