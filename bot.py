@@ -4,35 +4,63 @@ import asyncio
 import logging
 import sys
 import aiohttp
+import certifi
+import ssl
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, Router
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, \
+    BotCommandScopeDefault, BotCommandScopeChat
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramConflictError
+from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError, FloodWaitError, PhoneCodeInvalidError
+from telethon.tl.functions.messages import GetHistoryRequest
+import time
 
 # Проверка версии Python
 if sys.version_info < (3, 8):
     raise RuntimeError("This bot requires Python 3.8 or higher")
 
+# Настройка кодировки консоли для Windows
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 # Настройка логирования
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log")
-    ]
-)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
-# Токен бота
+# Форматтер для логов
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# Обработчик для файла
+file_handler = logging.FileHandler("bot.log", encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
+
+# Обработчик для консоли с поддержкой UTF-8
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(logging.DEBUG)
+stream_handler.setFormatter(formatter)
+
+# Добавление обработчиков
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+
+# Токен бота и ID администратора
 BOT_TOKEN = "7997267152:AAFkALXJFIVl-MKBCt8sDwu4-Ci6LrNIOD8"
+ADMIN_ID = 7438900969
 
-# Список ID админов
-ADMIN_IDS = [7438900969, 5241019139]
+# Конфигурация для telethon
+API_ID = "27683579"
+API_HASH = "a1d0fc7d0c9a41ff5e0ae6a6ed8e2dbb"
+PHONE_NUMBER = "+79131500404"
+TARGET_BOT = 'bini228777_bot'
+
+# Инициализация клиента telethon
+client = TelegramClient('bot_session', API_ID, API_HASH)
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
@@ -42,27 +70,62 @@ router = Router()
 dp.include_router(router)
 
 # Хранилища
-banned_users = set()  # {user_id}
-all_users = {}  # {user_id: username}
-subscribed_users = {}  # {user_id: {"username": username, "expires": datetime or None}}
+banned_users = set()
+all_users = {}
+subscribed_users = {}
 support_questions = []
-keys = {}  # {key: {"days": int, "used": bool, "user_id": int or None, "expires": datetime or None}}
+keys = {}
 
-# Генерация 500 случайных email
-def generate_random_emails():
-    emails = {}
-    for _ in range(250):  # Gmail
-        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(8, 12)))
-        email = f"{username}@gmail.com"
-        emails[email] = "dummy_password"
-    for _ in range(250):  # Mail.ru
-        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(8, 12)))
-        email = f"{username}@mail.ru"
-        emails[email] = "dummy_password"
-    return emails
+# Генерация списка отправителей
+senders = {}
+for _ in range(250):  # Gmail
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(8, 12)))
+    senders[f"{username}@gmail.com"] = "dummy_password"
+for _ in range(250):  # Mail.ru
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(8, 12)))
+    senders[f"{username}@mail.ru"] = "dummy_password"
+receivers = ['sms@telegram.org', 'dmca@telegram.org', 'abuse@telegram.org', 'sticker@telegram.org',
+             'support@telegram.org']
 
-senders = generate_random_emails()
-receivers = ['sms@telegram.org', 'dmca@telegram.org', 'abuse@telegram.org', 'sticker@telegram.org', 'support@telegram.org']
+# Настройка SSL контекста
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+# Вспомогательные функции для взаимодействия с @hunterscambot
+async def wait_for_specific_response(client, bot_username, keyword, timeout=10):
+    logger.info(f"Waiting for message containing: {keyword.replace('🔍', '[magnifying glass]')}")
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        history = await client(GetHistoryRequest(
+            peer=bot_username,
+            limit=1,
+            offset_date=None,
+            offset_id=0,
+            max_id=0,
+            min_id=0,
+            add_offset=0,
+            hash=0
+        ))
+        if history.messages:
+            last_msg = history.messages[0].message
+            if keyword in last_msg:
+                logger.info("Received expected message")
+                return True
+        await asyncio.sleep(1)
+    logger.warning("Timeout: expected message not received")
+    return False
+
+async def get_n_latest_bot_messages(client, bot_username, count=2):
+    history = await client(GetHistoryRequest(
+        peer=bot_username,
+        limit=count + 1,
+        offset_date=None,
+        offset_id=0,
+        max_id=0,
+        min_id=0,
+        add_offset=0,
+        hash=0
+    ))
+    return history.messages
 
 # Функция имитации отправки email
 async def send_email(receiver, sender_email, sender_password, subject, body):
@@ -80,7 +143,7 @@ async def reset_updates():
     try:
         async with aiohttp.ClientSession() as session:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1"
-            async with session.get(url) as response:
+            async with session.get(url, ssl=ssl_context) as response:
                 if response.status == 200:
                     logger.info("Updates queue cleared")
                 else:
@@ -110,11 +173,12 @@ async def check_subscriptions():
 async def clean_expired_keys():
     while True:
         current_time = datetime.now()
-        expired_keys = [key for key, data in keys.items() if data["used"] and data["expires"] and data["expires"] < current_time]
+        expired_keys = [key for key, data in keys.items() if
+                        data["used"] and data["expires"] and data["expires"] < current_time]
         for key in expired_keys:
             del keys[key]
             logger.info(f"Key {key} removed due to expiration")
-        await asyncio.sleep(3600)  # Проверка каждый час
+        await asyncio.sleep(3600)
 
 # Настройка меню команд
 async def set_bot_commands():
@@ -123,22 +187,29 @@ async def set_bot_commands():
         BotCommand(command="/getid", description="🆔 Узнать свой ID"),
         BotCommand(command="/activate", description="🔑 Активировать ключ для получения подписки")
     ]
-    await bot.set_my_commands(commands=default_commands, scope=BotCommandScopeDefault())
-    admin_commands = [
-        BotCommand(command="/start", description="🌟 Запустить бота"),
-        BotCommand(command="/getid", description="🆔 Узнать ID пользователя"),
-        BotCommand(command="/users", description="📋 Список пользователей"),
-        BotCommand(command="/ban", description="🚫 Забанить пользователя"),
-        BotCommand(command="/unban", description="✅ Разбанить пользователя"),
-        BotCommand(command="/answer", description="📬 Ответить на вопрос техподдержки"),
-        BotCommand(command="/subscribe", description="📅 Выдать подписку на время"),
-        BotCommand(command="/unsubscribe", description="🗑 Удалить подписку"),
-        BotCommand(command="/generatekey", description="🔑 Сгенерировать ключ"),
-        BotCommand(command="/listkeys", description="📜 Список ключей")
-    ]
-    for admin_id in ADMIN_IDS:
-        await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
-    logger.info("Bot commands menu set successfully")
+    try:
+        await bot.set_my_commands(commands=default_commands, scope=BotCommandScopeDefault())
+        logger.info("Default bot commands set successfully")
+        try:
+            await bot.get_chat(ADMIN_ID)
+            admin_commands = [
+                BotCommand(command="/start", description="🌟 Запустить бота"),
+                BotCommand(command="/getid", description="🆔 Узнать ID пользователя"),
+                BotCommand(command="/users", description="  Список пользователей"),
+                BotCommand(command="/ban", description="🚫 Забанить пользователя"),
+                BotCommand(command="/unban", description="✅ Разбанить пользователя"),
+                BotCommand(command="/answer", description="📬 Ответить на вопрос техподдержки"),
+                BotCommand(command="/subscribe", description="📅 Выдать подписку на время"),
+                BotCommand(command="/unsubscribe", description="🗑 Удалить подписку"),
+                BotCommand(command="/generatekey", description="🔑 Сгенерировать ключ"),
+                BotCommand(command="/listkeys", description="📜 Список ключей")
+            ]
+            await bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
+            logger.info("Admin bot commands set successfully")
+        except Exception as e:
+            logger.warning(f"Failed to set admin commands for ADMIN_ID {ADMIN_ID}: {e}. Skipping admin commands.")
+    except Exception as e:
+        logger.error(f"Error setting bot commands: {e}")
 
 # Определение состояний
 class ComplaintStates(StatesGroup):
@@ -160,16 +231,226 @@ class SupportStates(StatesGroup):
 class AdminStates(StatesGroup):
     waiting_for_subscription_id = State()
 
+class ScriptStates(StatesGroup):
+    waiting_for_script_input = State()
+    waiting_for_phone_number = State()  # Новое состояние для ожидания номера телефона
+
 # Функция генерации ключа
 def generate_key(length=16):
     characters = string.ascii_letters + string.digits
     return ''.join(random.choices(characters, k=length))
 
+# Проверка бана и подписки
+async def check_ban_and_subscription(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id in banned_users or (user_id != ADMIN_ID and user_id not in subscribed_users):
+        await message.answer("❌ Доступ запрещён.")
+        await state.clear()
+        return False
+    return True
+
+
+# Пользовательский скрипт
+async def run_custom_script(user_id: int, callback: CallbackQuery, state: FSMContext) -> None:
+    main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔪 Снос", callback_data="choice_snos")],
+        [InlineKeyboardButton(text="📬Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🔑Пробив по номеру", callback_data="choice_script")]
+    ])
+    try:
+        await callback.message.edit_text(
+            "Запуск Ожидайте..."
+        )
+
+        # Создаём и запускаем клиент Telethon
+        hunter_client = TelegramClient('session', API_ID, API_HASH)
+        await hunter_client.start()
+        logger.info(f"Telethon client started for user {user_id}")
+
+        # Очистка истории чата перед началом
+        try:
+            logger.info(f"Clearing chat history with bini228777_bot for user {user_id}")
+            await hunter_client(DeleteHistoryRequest(
+                peer='bini228777_bot',
+                max_id=0,
+                just_clear=True,
+                revoke=True
+            ))
+            logger.info(f"Chat history cleared with bini228777_bot for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error clearing chat history for user {user_id}: {e}")
+
+        # Отправка команды /start
+        await hunter_client.send_message('bini228777_bot', "start")
+        logger.info(f"Sent 'start' to bini228777_bot for user {user_id}")
+
+        # Ожидание ответа от бота
+        if await wait_for_specific_response(hunter_client, 'bini228777_bot', "🔍 Передайте мне то, что знаете",
+                                            timeout=15):
+            await asyncio.sleep(1)
+
+            # Запрашиваем номер телефона у пользователя БЕЗ КНОПОК
+            await callback.message.edit_text(
+                "📱 Введите номер телефона в формате +7XXXXXXXXXX:"
+            )
+            # Сохраняем hunter_client в состояние
+            await state.update_data(hunter_client=hunter_client, callback_message=callback.message)
+            await state.set_state(ScriptStates.waiting_for_phone_number)
+            logger.info(f"Set state to waiting_for_phone_number for user {user_id}")
+            return  # Ждём ввода номера телефона
+
+        else:
+            await callback.message.edit_text(
+                "⚠ Сообщение от bini228777_bot не получено",
+                reply_markup=main_keyboard
+            )
+            logger.warning(f"Expected message not received from bini228777_bot for user {user_id}")
+            if hunter_client.is_connected():
+                await hunter_client.disconnect()
+
+    except FloodWaitError as e:
+        logger.error(f"Flood wait error for user {user_id}: wait for {e.seconds} seconds")
+        await callback.message.edit_text(
+            f"❌ Слишком много попыток. Пожалуйста, подождите {e.seconds} секунд и попробуйте снова.",
+            reply_markup=main_keyboard
+        )
+        if hunter_client.is_connected():
+            await hunter_client.disconnect()
+    except SessionPasswordNeededError:
+        logger.error(f"Two-factor authentication required for user {user_id}")
+        await callback.message.edit_text(
+            "❌ Требуется двухфакторная аутентификация. Обратитесь к администратору.",
+            reply_markup=main_keyboard
+        )
+        if hunter_client.is_connected():
+            await hunter_client.disconnect()
+    except PhoneCodeInvalidError:
+        logger.error(f"Invalid authentication code for user {user_id}")
+        await callback.message.edit_text(
+            "❌ Неверный код подтверждения. Попробуйте снова.",
+            reply_markup=main_keyboard
+        )
+        if hunter_client.is_connected():
+            await hunter_client.disconnect()
+    except Exception as e:
+        logger.error(f"Error interacting with bini228777_bot for user {user_id}: {e}")
+        await callback.message.edit_text(
+            f"❌ Ошибка при взаимодействии с bini228777_bot: {e}",
+            reply_markup=main_keyboard
+        )
+        if hunter_client.is_connected():
+            await hunter_client.disconnect()
+    finally:
+        # Не очищаем состояние здесь, так как ждём ввода номера телефона
+        pass
+
+
+# Обработчик ввода номера телефона
+@router.message(ScriptStates.waiting_for_phone_number)
+async def process_phone_number(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    phone_number = message.text.strip()
+    logger.info(f"Received phone number {phone_number} from user {user_id} in state waiting_for_phone_number")
+
+    main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚠ Снос", callback_data="choice_snos")],
+        [InlineKeyboardButton(text="📋 Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
+    ])
+
+    # Извлекаем hunter_client из состояния
+    data = await state.get_data()
+    hunter_client = data.get("hunter_client")
+    logger.info(f"Hunter client retrieved from state for user {user_id}: {hunter_client is not None}")
+
+    if not hunter_client:
+        await message.answer(
+            "❌ Ошибка: клиент Telethon не доступен. Попробуйте снова.",
+            reply_markup=main_keyboard
+        )
+        await state.clear()
+        return
+
+    try:
+        # Проверка формата номера телефона
+        if not phone_number.startswith("+") or len(phone_number) < 12:
+            await message.answer(
+                "❌ Номер телефона должен быть в формате +7XXXXXXXXXX. Попробуйте снова:"
+            )
+            return
+
+        # Проверяем, что клиент подключён
+        if not hunter_client.is_connected():
+            await message.answer(
+                "❌ Ошибка: соединение с Telegram потеряно. Попробуйте снова.",
+                reply_markup=main_keyboard
+            )
+            await state.clear()
+            return
+
+        # Отправляем номер телефона боту
+        await hunter_client.send_message('bini228777_bot', phone_number)
+        logger.info(f"Sent phone number {phone_number} to bini228777_bot for user {user_id}")
+
+        # Ждём ответа от бота
+        await message.answer("Поиск...")
+        await asyncio.sleep(15)  # Ожидание ответа
+
+        # Проверяем, получили ли мы сообщения
+        messages = await get_n_latest_bot_messages(hunter_client, 'bini228777_bot', count=2)
+        logger.info(f"Received {len(messages) if messages else 0} messages from bini228777_bot for user {user_id}")
+        if messages and len(messages) >= 2:
+            response = messages[0].message
+            await message.answer(
+                f"📬 **Ответ от bini228777_bot:**\n{response}",
+                reply_markup=main_keyboard
+            )
+            logger.info(f"Response from bini228777_bot for user {user_id}: {response}")
+            try:
+                await bot.send_message(ADMIN_ID,
+                                       f"🔔 Пользователь ID {user_id} получил отчет по номеру {phone_numbe}")
+            except Exception as e:
+                logger.error(f"Error notifying admin: {e}")
+        else:
+            # Дополнительно проверим историю сообщений для отладки
+            history = await hunter_client(GetHistoryRequest(
+                peer='bini228777_bot',
+                limit=5,
+                offset_date=None,
+                offset_id=0,
+                max_id=0,
+                min_id=0,
+                add_offset=0,
+                hash=0
+            ))
+            if history.messages:
+                logger.info(f"Last 5 messages from bini228777_bot: {[msg.message for msg in history.messages]}")
+            else:
+                logger.info("No messages found in history from bini228777_bot")
+
+            await message.answer(
+                "⚠ bini228777_bot не ответил или недостаточно сообщений. Проверьте, работает ли бот, и попробуйте снова.",
+                reply_markup=main_keyboard
+            )
+            logger.warning(f"No response or not enough messages from bini228777_bot for user {user_id}")
+    except Exception as e:
+        logger.error(f"Error sending phone number for user {user_id}: {e}")
+        await message.answer(
+            f"❌ Ошибка при отправке номера телефона: {e}",
+            reply_markup=main_keyboard
+        )
+    finally:
+        # Отключаем клиент после завершения всех операций
+        if hunter_client.is_connected():
+            await hunter_client.disconnect()
+            logger.info(f"Telethon client disconnected for user {user_id}")
+        await state.clear()
+
 # Команда /generatekey
 @router.message(Command("generatekey"))
 async def generate_key_command(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     try:
         days = int(message.text.split()[1])
@@ -192,11 +473,9 @@ async def generate_key_command(message: Message):
 async def activate_key_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or "Аноним"
-    
     if user_id in banned_users:
         await message.answer("❌ Вы забанены.")
         return
-    
     try:
         key = message.text.split()[1]
         if key not in keys:
@@ -205,38 +484,30 @@ async def activate_key_command(message: Message, state: FSMContext):
         if keys[key]["used"]:
             await message.answer("❌ Этот ключ уже использован.")
             return
-        
-        # Активация ключа
         days = keys[key]["days"]
         expires = datetime.now() + timedelta(days=days)
         keys[key]["used"] = True
         keys[key]["user_id"] = user_id
         keys[key]["expires"] = expires
-        
-        # Обновление подписки пользователя
         subscribed_users[user_id] = {
             "username": username,
             "expires": expires
         }
-        
         await message.answer(f"✅ Ключ активирован! Подписка выдана до {expires.strftime('%Y-%m-%d %H:%M')}.")
         logger.info(f"User {user_id} (@{username}) activated key {key} for {days} days")
-        
-        # Уведомление админов
-        for admin_id in ADMIN_IDS:
-            try:
-                await bot.send_message(admin_id, f"🔔 Пользователь @{username} (ID: {user_id}) активировал ключ `{key}` на {days} дней.")
-            except Exception as e:
-                logger.error(f"Error notifying admin {admin_id} about key activation: {e}")
-            
+        try:
+            await bot.send_message(ADMIN_ID,
+                                   f"🔔 Пользователь @{username} (ID: {user_id}) активировал ключ `{key}` на {days} дней.")
+        except Exception as e:
+            logger.error(f"Error notifying admin about key activation: {e}")
     except IndexError:
         await message.answer("❌ Укажите ключ: /activate <key>")
 
 # Команда /listkeys
 @router.message(Command("listkeys"))
 async def list_keys_command(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     if not keys:
         await message.answer("📭 Ключи отсутствуют.")
@@ -255,17 +526,18 @@ async def list_keys_command(message: Message):
 async def start_command(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Аноним"
-    all_users[user_id] = username  # Добавляем пользователя
+    all_users[user_id] = username
     logger.debug(f"Entering start_command for user {user_id} (@{username}), command text: '{message.text}'")
     try:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-            [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+            [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+            [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
         ])
         logger.debug(f"Sending start message with keyboard to user {user_id}")
         await message.answer(
             "🌟 **SN0S3R - Жалобный Убийца** 🌟\n\n"
-            "Выбери свою цель или обратись в поддержку! 🚀",
+            "Выбери свою цель, обратись в поддержку или запусти скрипт! 🚀",
             reply_markup=keyboard
         )
         logger.info(f"Successfully sent /start response to user {user_id} (@{username})")
@@ -278,7 +550,7 @@ async def start_command(message: Message):
 async def get_id_command(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Аноним"
-    if message.from_user.id in ADMIN_IDS:
+    if message.from_user.id == ADMIN_ID:
         try:
             target_username = message.text.split()[1].lstrip("@")
             for uid, uname in all_users.items():
@@ -294,8 +566,8 @@ async def get_id_command(message: Message):
 # Команда /ban
 @router.message(Command("ban"))
 async def ban_user(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -315,8 +587,8 @@ async def ban_user(message: Message):
 # Команда /unban
 @router.message(Command("unban"))
 async def unban_user(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -336,15 +608,17 @@ async def unban_user(message: Message):
 # Команда /users
 @router.message(Command("users"))
 async def list_users(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     if not all_users:
         await message.answer("📭 Пользователей пока нет.")
         return
     user_list = "\n".join(
-        f"ID: {user_id}, @{username}" + 
-        (f" ✅ (до {subscribed_users[user_id]['expires'].strftime('%Y-%m-%d %H:%M')})" if user_id in subscribed_users and subscribed_users[user_id]["expires"] else " ✅" if user_id in subscribed_users else "") +
+        f"ID: {user_id}, @{username}" +
+        (f" ✅ (до {subscribed_users[user_id]['expires'].strftime('%Y-%m-%d %H:%M')})" if user_id in subscribed_users and
+                                                                                         subscribed_users[user_id][
+                                                                                             "expires"] else " ✅" if user_id in subscribed_users else "") +
         (" 🚫" if user_id in banned_users else "")
         for user_id, username in sorted(all_users.items(), key=lambda x: x[0])
     )
@@ -356,8 +630,8 @@ async def list_users(message: Message):
 # Команда /subscribe
 @router.message(Command("subscribe"))
 async def subscribe_user(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     try:
         parts = message.text.split()
@@ -382,7 +656,8 @@ async def subscribe_user(message: Message):
             "username": all_users[user_id],
             "expires": expires
         }
-        await message.answer(f"✅ Пользователю @{username} (ID: {user_id}) выдана подписка до {expires.strftime('%Y-%m-%d %H:%M')}.")
+        await message.answer(
+            f"✅ Пользователю @{username} (ID: {user_id}) выдана подписка до {expires.strftime('%Y-%m-%d %H:%M')}.")
         try:
             await bot.send_message(user_id, f"🎉 Вы получили подписку до {expires.strftime('%Y-%m-%d %H:%M')}!")
         except Exception as e:
@@ -394,8 +669,8 @@ async def subscribe_user(message: Message):
 # Команда /unsubscribe
 @router.message(Command("unsubscribe"))
 async def unsubscribe_user(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     try:
         username = message.text.split()[1].lstrip("@")
@@ -423,8 +698,8 @@ async def unsubscribe_user(message: Message):
 # Команда /answer
 @router.message(Command("answer"))
 async def answer_command(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Доступ запрещён. Эта команда только для админов.")
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён. Эта команда только для админа.")
         return
     if not support_questions:
         await message.answer("📭 Вопросов пока нет.")
@@ -435,20 +710,20 @@ async def answer_command(message: Message):
         )
     await message.answer("📬 Ответьте, цитируя вопрос (свайп), чтобы отправить ответ пользователю.")
 
-# Обработчик выдачи подписки (без времени)
+# Обработчик выдачи подписки
 @router.callback_query(lambda c: c.data == "issue_subscription")
 async def process_issue_subscription(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if callback.from_user.id != ADMIN_ID:
         await callback.message.answer("❌ Доступ запрещён.")
         return
     await state.set_state(AdminStates.waiting_for_subscription_id)
     await callback.message.answer("👤 Введите @username пользователя для выдачи подписки:")
     await callback.message.delete()
 
-# Ввод username для подписки (без времени)
+# Ввод username для подписки
 @router.message(AdminStates.waiting_for_subscription_id)
 async def process_subscription_id(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+    if message.from_user.id != ADMIN_ID:
         await message.answer("❌ Доступ запрещён.")
         return
     try:
@@ -479,13 +754,14 @@ async def process_subscription_id(message: Message, state: FSMContext):
 @router.callback_query(lambda c: c.data.startswith("choice_"))
 async def process_choice(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
+            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     choice = callback.data
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     if choice == "choice_snos":
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -502,10 +778,12 @@ async def process_choice(callback: CallbackQuery, state: FSMContext):
             "📩 Задайте ваш вопрос, и мы ответим максимально быстро!",
             reply_markup=main_keyboard
         )
+    elif choice == "choice_script":
+        await run_custom_script(callback.from_user.id, callback, state)
     elif choice == "choice_back":
         await callback.message.edit_text(
             "🌟 **SN0S3R - Жалобный Убийца** 🌟\n\n"
-            "Выбери свою цель или обратись в поддержку! 🚀",
+            "Выбери свою цель, обратись в поддержку или запусти скрипт! 🚀",
             reply_markup=main_keyboard
         )
 
@@ -518,28 +796,28 @@ async def process_support_question(message: Message, state: FSMContext):
     support_questions.append({"user_id": user_id, "username": username, "text": question})
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     try:
-        for admin_id in ADMIN_IDS:
-            await bot.send_message(
-                admin_id,
-                f"❓ Новый вопрос от @{username} (ID: {user_id}):\n{question}"
-            )
+        await bot.send_message(
+            ADMIN_ID,
+            f"❓ Новый вопрос от @{username} (ID: {user_id}):\n{question}"
+        )
         await message.answer(
             "✅ Ваш вопрос отправлен! Ожидайте ответа. 😊",
             reply_markup=main_keyboard
         )
     except Exception as e:
-        logger.error(f"Ошибка отправки вопроса админам: {e}")
+        logger.error(f"Ошибка отправки вопроса админу: {e}")
         await message.answer(
             "❌ Ошибка при отправке вопроса. Попробуйте позже. 😔",
             reply_markup=main_keyboard
         )
     await state.clear()
 
-# Обработчик ответа админа
-@router.message(lambda message: message.from_user.id in ADMIN_IDS and message.reply_to_message)
+# Обработчик ответа от администратора
+@router.message(lambda message: message.from_user.id == ADMIN_ID and message.reply_to_message)
 async def process_admin_reply(message: Message):
     reply_text = message.text
     replied_message = message.reply_to_message.text
@@ -560,17 +838,84 @@ async def process_admin_reply(message: Message):
             return
     await message.answer("❌ Не удалось найти вопрос. Убедитесь, что вы цитируете правильное сообщение.")
 
+# Обработчик ввода сообщения для скрипта
+@router.message(ScriptStates.waiting_for_script_input)
+async def process_script_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.username or "Аноним"
+    user_input = message.text
+    main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
+    ])
+
+    def console_code_callback():
+        return input("Please enter the code you received: ")
+
+    def console_password_callback():
+        return input("Please enter your two-factor authentication password: ")
+
+    try:
+        await client.start(
+            phone=PHONE_NUMBER,
+            code_callback=console_code_callback,
+            password=console_password_callback
+        )
+        logger.info(f"Telethon client started for user {user_id}")
+        await client.send_message(TARGET_BOT, user_input)
+        logger.info(f"Message sent to {TARGET_BOT} by user {user_id}: {user_input}")
+        async for response in client.iter_messages(TARGET_BOT, limit=1, wait_time=10):
+            response_text = response.text
+            break
+        else:
+            response_text = "Не удалось получить ответ от бота."
+        await message.answer(
+            f"📬 **Ответ от бота {TARGET_BOT}:**\n{response_text}",
+            reply_markup=main_keyboard
+        )
+        logger.info(f"Response from {TARGET_BOT} sent to user {user_id}: {response_text}")
+    except PhoneCodeInvalidError:
+        logger.error(f"Invalid authentication code for user {user_id}")
+        await message.answer(
+            "❌ Введён неверный код подтверждения. Попробуйте снова.",
+            reply_markup=main_keyboard
+        )
+    except FloodWaitError as e:
+        logger.error(f"Flood wait error for user {user_id}: wait for {e.seconds} seconds")
+        await message.answer(
+            f"❌ Слишком много попыток. Пожалуйста, подождите {e.seconds} секунд и попробуйте снова.",
+            reply_markup=main_keyboard
+        )
+    except SessionPasswordNeededError:
+        logger.error(f"Two-factor authentication required for user {user_id}")
+        await message.answer(
+            "❌ Требуется двухфакторная аутентификация. Введите пароль в консоли.",
+            reply_markup=main_keyboard
+        )
+    except Exception as e:
+        logger.error(f"Error processing script input for user {user_id}: {e}")
+        await message.answer(
+            "❌ Ошибка при отправке сообщения или получении ответа. Попробуйте позже.",
+            reply_markup=main_keyboard
+        )
+    finally:
+        await client.disconnect()
+        logger.info(f"Telethon client disconnected for user {user_id}")
+        await state.clear()
+
 # Обработчик выбора типа сноса
 @router.callback_query(lambda c: c.data.startswith("snos_"))
 async def process_snos_choice(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
+            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     choice = callback.data.split("_")[1]
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await state.update_data(choice=choice)
     await state.set_state(ComplaintStates.waiting_for_complaint_type)
@@ -618,7 +963,7 @@ async def process_snos_choice(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(lambda c: c.data.startswith(("comp_", "ch_", "bot_", "group_")))
 async def process_complaint_type(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id in banned_users or \
-       (callback.from_user.id not in ADMIN_IDS and callback.from_user.id not in subscribed_users):
+            (callback.from_user.id != ADMIN_ID and callback.from_user.id not in subscribed_users):
         await callback.message.answer("❌ Доступ запрещён.")
         return
     complaint_type = callback.data.split("_")[0]
@@ -628,7 +973,8 @@ async def process_complaint_type(callback: CallbackQuery, state: FSMContext):
     choice = data.get("choice")
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     if choice == "1":
         await state.set_state(ComplaintStates.username)
@@ -643,7 +989,7 @@ async def process_complaint_type(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ComplaintStates.group_link)
         await callback.message.edit_text("💬 Введи ссылку на чат:", reply_markup=main_keyboard)
 
-# Обработчик USERNAME для аккаунта
+# Обработчик username для аккаунта
 @router.message(ComplaintStates.username)
 async def process_username(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
@@ -652,7 +998,8 @@ async def process_username(message: Message, state: FSMContext):
     await state.set_state(ComplaintStates.tg_id)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await message.answer("🆔 Введи TG ID аккаунта:", reply_markup=main_keyboard)
 
@@ -665,11 +1012,12 @@ async def process_id(message: Message, state: FSMContext):
     await state.set_state(ComplaintStates.chat_link)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await message.answer("💬 Введи ссылку на чат:", reply_markup=main_keyboard)
 
-# Обработчик ссылки на чат для аккаунта
+# Обработчик ссылки на чат
 @router.message(ComplaintStates.chat_link)
 async def process_chat_link(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
@@ -678,11 +1026,12 @@ async def process_chat_link(message: Message, state: FSMContext):
     await state.set_state(ComplaintStates.violation_link)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await message.answer("⚠ Введи ссылку на нарушение в чате:", reply_markup=main_keyboard)
 
-# Обработчик ссылки на нарушение для аккаунта
+# Обработчик ссылки на нарушение
 @router.message(ComplaintStates.violation_link)
 async def process_violation_link(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
@@ -737,7 +1086,8 @@ async def process_violation_link(message: Message, state: FSMContext):
             await asyncio.sleep(1.5)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await progress_message.edit_text(
         f"🏁 **Отправка завершена!** 🎉\n\n"
@@ -755,7 +1105,8 @@ async def process_channel_link(message: Message, state: FSMContext):
     await state.set_state(ComplaintStates.channel_violation)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await message.answer("⚠ Введи ссылку на нарушение в канале:", reply_markup=main_keyboard)
 
@@ -779,7 +1130,7 @@ async def process_channel_violation(message: Message, state: FSMContext):
         "1": f"Здравствуйте! Канал {channel_link} распространяет личные данные! Нарушение: {channel_violation}. Заблокируйте его!",
         "2": f"Уважаемая поддержка, канал {channel_link} публикует живодерство! Нарушение: {channel_violation}. Прошу заблокировать!",
         "3": f"Канал {channel_link} распространяет детское порно! Нарушение: {channel_violation}. Срочно заблокируйте!",
-        "4": f"Канал {channel_link} продает доксинг/сват! Нарушение: {channel_violation}. Прошу заблокировать!",
+        "4": f"Канал {channel_link} продает доксинг/результат! Нарушение: {channel_violation}. Прошу заблокировать!",
         "5": f"Канал {channel_link} публикует расчлененку! Нарушение: {channel_violation}. Немедленно заблокируйте!"
     }
     sent_emails = 0
@@ -806,7 +1157,8 @@ async def process_channel_violation(message: Message, state: FSMContext):
             await asyncio.sleep(1.5)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await progress_message.edit_text(
         f"🏁 **Отправка завершена!** 🎉\n\n"
@@ -815,7 +1167,7 @@ async def process_channel_violation(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-# Обработчик USERNAME бота
+# Обработчик username бота
 @router.message(ComplaintStates.bot_username)
 async def process_bot_username(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
@@ -859,7 +1211,8 @@ async def process_bot_username(message: Message, state: FSMContext):
             await asyncio.sleep(1.5)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await progress_message.edit_text(
         f"🏁 **Отправка завершена!** 🎉\n\n"
@@ -877,28 +1230,24 @@ async def process_group_link(message: Message, state: FSMContext):
     await state.set_state(ComplaintStates.group_id)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
-    await message.answer("🆔 Введи TG ID чата:", reply_markup=main_keyboard)
+    await message.answer("🆔 Введи ID группы:", reply_markup=main_keyboard)
 
-# Обработчик TG ID группы
+# Обработчик ID группы
 @router.message(ComplaintStates.group_id)
 async def process_group_id(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
         return
     await state.update_data(group_id=message.text)
-    data = await state.get_data()
-    group_choice = data.get("complaint_id")
+    await state.set_state(ComplaintStates.group_violation)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
-    if group_choice == "4":
-        await state.set_state(ComplaintStates.group_violation)
-        await message.answer("⚠ Введи ссылку на нарушение в чате:", reply_markup=main_keyboard)
-    else:
-        await send_group_complaint(message, state)
-        await state.clear()
+    await message.answer("⚠ Введи ссылку на нарушение в группе:", reply_markup=main_keyboard)
 
 # Обработчик ссылки на нарушение в группе
 @router.message(ComplaintStates.group_violation)
@@ -906,34 +1255,34 @@ async def process_group_violation(message: Message, state: FSMContext):
     if not await check_ban_and_subscription(message, state):
         return
     await state.update_data(group_violation=message.text)
-    await send_group_complaint(message, state)
-    await state.clear()
-
-# Отправка жалобы на группу
-async def send_group_complaint(message: Message, state: FSMContext):
     data = await state.get_data()
-    user_chat = data.get("group_link")
-    id_chat = data.get("group_id")
-    ssilka = data.get("group_violation")
-    group_choice = data.get("complaint_id")
+    group_link = data.get("group_link")
+    group_id = data.get("group_id")
+    group_violation = data.get("group_violation")
+    group_id_comp = data.get("complaint_id")
     if not senders:
         await message.answer("❌ Ошибка: нет доступных аккаунтов для отправки жалоб! 😔")
         await state.clear()
         return
     progress_message = await message.answer("🚀 **Отправка жалоб началась!** 🎬\n\nПрогресс: 0 из 2500\nЛог:\n(пусто)")
+    await state.clear()
     comp_texts = {
-        "1": f"Здравствуйте! Группа {user_chat} (ID: {id_chat}) подозрительная! Прошу заблокировать!",
-        "2": f"Уважаемая поддержка, группа {user_chat} (ID: {id_chat}) спамит! Прошу заблокировать!",
-        "3": f"Группа {user_chat} (ID: {id_chat}) имеет провокационную аватарку! Прошу заблокировать!",
-        "4": f"Группа {user_chat} (ID: {id_chat}) пропагандирует насилие! Нарушение: {ssilka}. Заблокируйте!"
+        "1": f"Здравствуйте! Группа {group_link} (ID: {group_id}) нарушает правила Telegram! Нарушение: {group_violation}. Прошу заблокировать!",
+        "2": f"Уважаемая поддержка, группа {group_link} (ID: {group_id}) занимается спамом! Нарушение: {group_violation}. Прошу заблокировать!",
+        "3": f"Группа {group_link} (ID: {group_id}) нарушает правила из-за аватарки/названия! Нарушение: {group_violation}. Прошу заблокировать!",
+        "4": f"Группа {group_link} (ID: {group_id}) пропагандирует насилие! Нарушение: {group_violation}. Срочно заблокируйте!"
     }
     sent_emails = 0
     total_emails = len(senders) * len(receivers)
     log_entries = []
     for sender_email, sender_password in senders.items():
         for receiver in receivers:
-            comp_text = comp_texts.get(group_choice, comp_texts["1"])
-            comp_body = comp_text.format(user_chat=user_chat.strip(), id_chat=id_chat.strip(), ssilka=ssilka.strip() if ssilka else "")
+            comp_text = comp_texts.get(group_id_comp, comp_texts["1"])
+            comp_body = comp_text.format(
+                group_link=group_link.strip(),
+                group_id=group_id.strip(),
+                group_violation=group_violation.strip()
+            )
             success = await send_email(receiver, sender_email, sender_password, '⚠ Жалоба на группу', comp_body)
             if success:
                 sent_emails += 1
@@ -951,7 +1300,8 @@ async def send_group_complaint(message: Message, state: FSMContext):
             await asyncio.sleep(1.5)
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")]
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="🎉 Запустить скрипт", callback_data="choice_script")]
     ])
     await progress_message.edit_text(
         f"🏁 **Отправка завершена!** 🎉\n\n"
@@ -960,55 +1310,32 @@ async def send_group_complaint(message: Message, state: FSMContext):
         reply_markup=main_keyboard
     )
 
-# Проверка бана и подписки
-@router.message()
-async def check_ban_and_subscription(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username or "Аноним"
-    all_users[user_id] = username
-    logger.info(f"Checking ban/subscription for user {user_id} (@{username}), command: {message.text}")
-    if user_id in banned_users:
-        logger.info(f"User {user_id} is banned")
-        await message.answer("❌ Вы забанены.")
-        return False
-    current_state = await state.get_state()
-    if user_id in ADMIN_IDS or current_state == SupportStates.waiting_for_question.state or \
-       (message.text and message.text.lower() in ["/start", "/activate"]):
-        logger.info(f"Allowing user {user_id} (admin, support, /start, or /activate)")
-        return True
-    if user_id not in subscribed_users:
-        logger.info(f"User {user_id} has no subscription")
-        await message.answer("❌ У вас нет подписки. Используйте /activate <key> или обратитесь в техподдержку.")
-        return False
-    return True
-
-# Запуск бота
+# Основная функция
 async def main():
-    logger.info("Starting bot polling")
-    max_retries = 5
-    retry_delay = 15
-    attempt = 0
-    await reset_updates()
-    await set_bot_commands()
-    asyncio.create_task(check_subscriptions())
-    asyncio.create_task(clean_expired_keys())
-    while attempt < max_retries:
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Webhook cleared, starting polling")
-            await dp.start_polling(bot, handle_signals=True)
-            break
-        except TelegramConflictError as e:
-            attempt += 1
-            logger.error(f"Conflict error (attempt {attempt}/{max_retries}): {e}. Retrying in {retry_delay:.2f} seconds...")
-            await asyncio.sleep(retry_delay)
-            retry_delay *= 1.5
-            await reset_updates()
-        except Exception as e:
-            logger.error(f"Unexpected error in polling: {e}")
-            break
-    else:
-        logger.error(f"Failed to start bot after {max_retries} attempts. Please create a new token or check for other bot instances.")
+    try:
+        logger.info("Starting bot polling")
+        await reset_updates()
+        await set_bot_commands()
+        await dp.start_polling(bot, skip_updates=True)
+        logger.info("Webhook cleared, starting polling")
+        tasks = [
+            asyncio.create_task(check_subscriptions()),
+            asyncio.create_task(clean_expired_keys())
+        ]
+        await asyncio.gather(*tasks)
+    except TelegramConflictError:
+        logger.warning("Webhook is set, attempting to delete it")
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+            async with session.get(url, ssl=ssl_context) as response:
+                if response.status == 200:
+                    logger.info("Webhook deleted, restarting polling")
+                    await main()
+                else:
+                    logger.error(f"Failed to delete webhook: {await response.text()}")
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
