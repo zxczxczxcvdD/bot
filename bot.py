@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "7997267152:AAFkALXJFIVl-MKBCt8sDwu4-Ci6LrNIOD8"
 
 # ID админа
-ADMIN_ID = 7438900969
+ADMIN_ID = [7438900969, 5241019139]
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
