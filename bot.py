@@ -50,7 +50,7 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 # Токен бота и ID администратора
-BOT_TOKEN = "7997267152:AAFkALXJFIVl-MKBCt8sDwu4-Ci6LrNIOD8"
+BOT_TOKEN = "7737648594:AAFE4jpEk_hL1Rx5E7j5ifB8DftPM3wtw80"
 ADMIN_ID = 7438900969
 
 # Конфигурация для telethon
