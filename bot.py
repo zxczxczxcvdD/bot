@@ -264,7 +264,7 @@ async def run_custom_script(user_id: int, callback: CallbackQuery, state: FSMCon
         except Exception as e:
             logger.error(f"Error clearing chat history for user {user_id}: {e}")
 
-        await hunter_client.send_message(TARGET_BOT, "start")
+        await hunter_client.send_message(TARGET_BOT, "/start")
         logger.info(f"Sent 'start' to {TARGET_BOT} for user {user_id}")
 
         if await wait_for_specific_response(hunter_client, TARGET_BOT, "🔍 Передайте мне то, что знаете", timeout=15):
