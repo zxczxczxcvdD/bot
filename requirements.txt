@@ -1,4 +1,4 @@
 aiogram==3.2.0
 aiohttp
 telethon
-time
+requests
