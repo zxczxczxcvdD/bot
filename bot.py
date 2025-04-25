@@ -54,7 +54,7 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 # Токен бота и ID администраторов
-BOT_TOKEN = "8177021318:AAEusRPXgP6URYs8MCpSQ3--6dw1_Cf86N0"
+BOT_TOKEN = "7584520148:AAFNCuunXpmt65asISKrNRabKhp5qjfIf9Q"
 ADMIN_IDS = {5241019139, 7438900969}  # Множество ID администраторов (добавьте реальные ID)
 
 # Конфигурация для telethon
@@ -1482,10 +1482,10 @@ async def process_group_violation(message: Message, state: FSMContext):
 
 async def run_username_script(user_id: int, callback: CallbackQuery, state: FSMContext) -> None:
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
-        [InlineKeyboardButton(text="Пробив по номеру", callback_data="choice_script")],
-        [InlineKeyboardButton(text="Пробив по Username", callback_data="choice_username")]
+        [InlineKeyboardButton(text="👏 Снос", callback_data="choice_snos")],
+        [InlineKeyboardButton(text="❤️‍🔥 Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="☂️ Пробив по номеру", callback_data="choice_script")],
+        [InlineKeyboardButton(text="🌠 Пробив по Username", callback_data="choice_username")]
     ])
     try:
         await callback.message.edit_text(
