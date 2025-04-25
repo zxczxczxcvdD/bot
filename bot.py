@@ -6,7 +6,6 @@ import sys
 import aiohttp
 import certifi
 import ssl
-import time
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, \
@@ -95,7 +94,6 @@ receivers = ['sms@telegram.org', 'dmca@telegram.org', 'abuse@telegram.org', 'sti
 # Настройка SSL контекста
 ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-# Вспомогательные функции для взаимодействия с @hunterscambot
 async def wait_for_specific_response(client, bot_username, keyword, timeout=10):
     logger.info(f"Waiting for message containing: {keyword.replace('🔍', '[magnifying glass]')}")
     start_time = time.time()
@@ -110,11 +108,15 @@ async def wait_for_specific_response(client, bot_username, keyword, timeout=10):
             add_offset=0,
             hash=0
         ))
-        if history.messages:
-            last_msg = history.messages[0].message
-            if keyword in last_msg:
-                logger.info("Received expected message")
-                return True
+        # Проверяем, что history.messages существует и не равно None
+        if not hasattr(history, 'messages') or history.messages is None or not history.messages:
+            logger.info("No messages found in history.")
+            await asyncio.sleep(1)
+            continue
+        last_msg = history.messages[0].message
+        if keyword in last_msg:
+            logger.info("Received expected message")
+            return True
         await asyncio.sleep(1)
     logger.warning("Timeout: expected message not received")
     return False
@@ -130,6 +132,10 @@ async def get_n_latest_bot_messages(client, bot_username, count=2):
         add_offset=0,
         hash=0
     ))
+    # Проверяем, что history.messages не None, иначе возвращаем пустой список
+    if not hasattr(history, 'messages') or history.messages is None:
+        logger.warning(f"No messages found in history for {bot_username}")
+        return []
     return history.messages
 
 # Функция имитации отправки email
@@ -288,7 +294,7 @@ async def run_custom_script(user_id: int, callback: CallbackQuery, state: FSMCon
             logger.error(f"Error clearing chat history for user {user_id}: {e}")
 
         # Отправка команды /start
-        await hunter_client.send_message('bini228777_bot', "/start")
+        await hunter_client.send_message('bini228777_bot', "start")
         logger.info(f"Sent 'start' to bini228777_bot for user {user_id}")
 
         # Ожидание ответа от бота
@@ -466,50 +472,54 @@ async def find_and_click_button(client, bot_username, button_position=3, timeout
             add_offset=0,
             hash=0
         ))
-        if history.messages:
-            message = history.messages[0]
-            logger.info(f"Message text: {message.message}")
-            if hasattr(message, 'reply_markup') and message.reply_markup:
-                logger.info("Found inline buttons:")
-                buttons = [button for row in message.reply_markup.rows for button in row.buttons]
-                for i, button in enumerate(buttons):
-                    logger.info(f"Button {i + 1} (index {i}): '{button.text}' | Type: {type(button).__name__}")
-                    if isinstance(button, KeyboardButtonCallback):
-                        logger.info(f"Callback data for button {i + 1}: {button.data}")
-                if len(buttons) > button_position:
-                    target_button = buttons[button_position]
-                    logger.info(f"Selected button at position {button_position + 1}: '{target_button.text}'")
-                    try:
-                        if isinstance(target_button, KeyboardButtonUrl):
-                            logger.info(f"This is a URL button: {target_button.url}")
-                            return True
-                        elif isinstance(target_button, KeyboardButtonCallback):
-                            logger.info(f"Sending callback query with data: {target_button.data}")
-                            try:
-                                await client(GetBotCallbackAnswerRequest(
-                                    peer=bot_username,
-                                    msg_id=message.id,
-                                    data=target_button.data
-                                ))
-                                logger.info("Callback query successfully sent.")
-                            except Exception as e:
-                                if "did not answer to the callback query in time" in str(e):
-                                    logger.info("Bot did not respond in time, but query sent (timeout).")
-                                else:
-                                    logger.error(f"Error sending callback query: {e}")
-                                    return False
-                            return True
-                        else:
-                            await message.click(button_position)
-                            logger.info("Button successfully clicked via click().")
-                            return True
-                    except Exception as e:
-                        logger.error(f"Error clicking button: {e}")
-                        return False
-                else:
-                    logger.info(f"Not enough buttons: found {len(buttons)}, required {button_position + 1}")
+        # Проверяем, что history.messages существует и не равно None
+        if not hasattr(history, 'messages') or history.messages is None or not history.messages:
+            logger.info("No messages found in history.")
+            await asyncio.sleep(1)
+            continue
+        message = history.messages[0]
+        logger.info(f"Message text: {message.message}")
+        if hasattr(message, 'reply_markup') and message.reply_markup:
+            logger.info("Found inline buttons:")
+            buttons = [button for row in message.reply_markup.rows for button in row.buttons]
+            for i, button in enumerate(buttons):
+                logger.info(f"Button {i + 1} (index {i}): '{button.text}' | Type: {type(button).__name__}")
+                if isinstance(button, KeyboardButtonCallback):
+                    logger.info(f"Callback data for button {i + 1}: {button.data}")
+            if len(buttons) > button_position:
+                target_button = buttons[button_position]
+                logger.info(f"Selected button at position {button_position + 1}: '{target_button.text}'")
+                try:
+                    if isinstance(target_button, KeyboardButtonUrl):
+                        logger.info(f"This is a URL button: {target_button.url}")
+                        return True
+                    elif isinstance(target_button, KeyboardButtonCallback):
+                        logger.info(f"Sending callback query with data: {target_button.data}")
+                        try:
+                            await client(GetBotCallbackAnswerRequest(
+                                peer=bot_username,
+                                msg_id=message.id,
+                                data=target_button.data
+                            ))
+                            logger.info("Callback query successfully sent.")
+                        except Exception as e:
+                            if "did not answer to the callback query in time" in str(e):
+                                logger.info("Bot did not respond in time, but query sent (timeout).")
+                            else:
+                                logger.error(f"Error sending callback query: {e}")
+                                return False
+                        return True
+                    else:
+                        await message.click(button_position)
+                        logger.info("Button successfully clicked via click().")
+                        return True
+                except Exception as e:
+                    logger.error(f"Error clicking button: {e}")
+                    return False
+            else:
+                logger.info(f"Not enough buttons: found {len(buttons)}, required {button_position + 1}")
         else:
-            logger.info("No messages found.")
+            logger.info("No reply markup found.")
         await asyncio.sleep(1)
     logger.warning(f"Timeout: button at position {button_position + 1} not found.")
     return False
@@ -565,6 +575,7 @@ async def process_username_input(message: Message, state: FSMContext):
         if await find_and_click_button(hunter_client, TARGET_BOT, button_position=3, timeout=15):
             await asyncio.sleep(10)  # Ожидание после нажатия кнопки
             messages = await get_n_latest_bot_messages(hunter_client, TARGET_BOT, count=2)
+            # messages теперь гарантированно список (пустой или нет)
             if messages and len(messages) >= 2:
                 response = messages[0].message
                 await message.answer(
@@ -1482,10 +1493,10 @@ async def process_group_violation(message: Message, state: FSMContext):
 
 async def run_username_script(user_id: int, callback: CallbackQuery, state: FSMContext) -> None:
     main_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👏 Снос", callback_data="choice_snos")],
-        [InlineKeyboardButton(text="❤️‍🔥 Техподдержка", callback_data="choice_support")],
-        [InlineKeyboardButton(text="☂️ Пробив по номеру", callback_data="choice_script")],
-        [InlineKeyboardButton(text="🌠 Пробив по Username", callback_data="choice_username")]
+        [InlineKeyboardButton(text="Снос", callback_data="choice_snos")],
+        [InlineKeyboardButton(text="Техподдержка", callback_data="choice_support")],
+        [InlineKeyboardButton(text="Пробив по номеру", callback_data="choice_script")],
+        [InlineKeyboardButton(text="Пробив по Username", callback_data="choice_username")]
     ])
     try:
         await callback.message.edit_text(
